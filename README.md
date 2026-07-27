@@ -120,6 +120,10 @@ multi-Spark monitor worth looking at if you would rather have a push-based stack
 Typeface: [Barlow](https://github.com/jpt/barlow) by Jeremy Tribby, SIL Open Font
 License 1.1 (see [assets/OFL.txt](assets/OFL.txt)).
 
+Node artwork (`assets/ai-node-v2.webp`) is original to this project and covered by the
+same MIT license. It is a generic compute-node illustration — not NVIDIA product
+imagery, and it carries no NVIDIA branding.
+
 ## License
 
 [MIT](LICENSE).

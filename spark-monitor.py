@@ -50,7 +50,7 @@ ASSETS_DIR = os.path.join(HERE, "assets")
 ASSETS = {
     "barlow-400.woff2": "font/woff2", "barlow-500.woff2": "font/woff2",
     "barlow-700.woff2": "font/woff2", "barlowcond-400.woff2": "font/woff2",
-    "barlowcond-600.woff2": "font/woff2",
+    "barlowcond-600.woff2": "font/woff2", "ai-node-v2.webp": "image/webp",
 }
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 CACHE_TTL = 3.0
@@ -1212,8 +1212,8 @@ def make_icon():
     """The app icon, drawn pixel by pixel into a PNG with zlib + struct only.
 
     Three rising bars on the dark page colour — legible as a monitoring mark at
-    both home-screen and favicon size. Generating it here rather than shipping
-    a binary keeps the repository text-only apart from the fonts.
+    both home-screen and favicon size. Generated rather than shipped so there is
+    no icon file to keep in sync with the theme colours.
     """
     w = h = 180
     bg = (15, 19, 23)                               # --paper
@@ -1489,29 +1489,13 @@ function toggleTheme(){const t=(document.documentElement.getAttribute('data-them
 
 function nodeById(id){return REG.find(r=>r.id===id)||{id:id,name:id}}
 
-/* Node marker: an original, drawn-in-SVG chassis (no product photography, so
-   the whole dashboard stays self-contained and freely redistributable). Front
-   face carries a vent grille and a power LED that goes grey when the node is
-   unreachable. Returns a <g> positioned at the node's centre point. */
-function nodeGlyph(x,y,w,on){
- const h=w*0.42,d=w*0.20;                       /* body, and the 3-D offset */
- const L=x-w/2,T=y-h/2,R=x+w/2,B=y+h/2;
- const body=on?'var(--panel)':'var(--inset)',edge=on?'var(--steel)':'var(--line)';
- let o=`<g opacity="${on?1:.55}">`;
- /* top and side faces first, so the front face overlaps them cleanly */
- o+=`<path d="M${L} ${T} L${L+d} ${T-d} L${R+d} ${T-d} L${R} ${T} Z" fill="${body}" stroke="${edge}" stroke-width="1" opacity=".55"/>`;
- o+=`<path d="M${R} ${T} L${R+d} ${T-d} L${R+d} ${B-d} L${R} ${B} Z" fill="${body}" stroke="${edge}" stroke-width="1" opacity=".35"/>`;
- o+=`<rect x="${L}" y="${T}" width="${w}" height="${h}" rx="3" fill="${body}" stroke="${edge}" stroke-width="1.2"/>`;
- /* vent grille */
- for(let i=1;i<=7;i++){const gx=L+w*(0.30+i*0.075);
-  o+=`<line x1="${gx}" y1="${T+h*0.22}" x2="${gx}" y2="${B-h*0.22}" stroke="${edge}" stroke-width="1.4" opacity=".45"/>`}
- /* power LED */
- o+=`<circle cx="${L+w*0.15}" cy="${y}" r="${Math.max(2,w*0.035)}" fill="${on?'var(--ok)':'var(--crit)'}"/>`;
- return o+'</g>'}
-
 // SVG diagram for one topology group. Geometry follows the member count so any
 // shape derived from the live cabling (solo / pair / ring / mesh) renders
 // sensibly, with each node's live GPU utilization under its marker.
+//
+// Node marker artwork. Assets are served immutable, so the filename carries the
+// version: changing the artwork means bumping this name, never just the bytes.
+const NODE_IMG='/assets/ai-node-v2.webp';
 function groupSVG(g,s){
  const up=id=>((s.nodes||{})[id]||{}).online;
  const ids=g.node_ids,F=ids.length,kind=g.kind;
@@ -1533,15 +1517,15 @@ function groupSVG(g,s){
  const uColor=u=>u==null?'var(--mut)':u>=90?'var(--crit)':u>=70?'var(--warn)':'var(--ok)';
  ids.forEach(id=>{const r=nodeById(id),[x,y]=pos[id],st=(s.nodes||{})[id]||{},on=up(id),u=st.gpu_util;
   const rail=(r.rails&&r.rails[0])||'no fabric';
-  const iw=solo?112:96,ih=iw*0.42;
+  const iw=solo?112:96,ih=iw*0.608;
   // opaque plate so the link line does not run through the label block
-  o+=`<g><rect x="${x-78}" y="${y-ih/2-14}" width="160" height="${ih+88}" fill="var(--card)"/>`
-   +nodeGlyph(x,y,iw,on)
-   +`<circle cx="${x-46}" cy="${y+ih/2+22}" r="4" fill="${on?'var(--ok)':'var(--crit)'}"/>`
-   +`<text x="${x-36}" y="${y+ih/2+26}" fill="var(--tx)" font-size="14" class="cond" style="font-family:'Barlow Condensed',sans-serif;font-weight:600">${r.name}</text>`
-   +`<text x="${x}" y="${y+ih/2+42}" text-anchor="middle" fill="var(--faint)" font-size="10.5">${r.role}${r.role==='head'?' &middot; rank 0':''} &middot; ${rail}</text>`
-   +`<text x="${x-4}" y="${y+ih/2+64}" text-anchor="end" fill="${uColor(u)}" font-size="19" style="font-family:'Barlow Condensed',sans-serif;font-weight:600">${u!=null?u+'%':'--'}</text>`
-   +(st.gpu_temp!=null?`<text x="${x+2}" y="${y+ih/2+64}" fill="var(--mut)" font-size="11">&middot; ${st.gpu_temp}&deg;C</text>`:'')
+  o+=`<g><rect x="${x-78}" y="${y-ih/2-6}" width="160" height="${ih+80}" fill="var(--card)"/>`
+   +`<image href="${NODE_IMG}" x="${x-iw/2}" y="${y-ih/2}" width="${iw}" height="${ih}" preserveAspectRatio="xMidYMid meet"${on?'':' opacity=".35"'}/>`
+   +`<circle cx="${x-46}" cy="${y+ih/2+18}" r="4" fill="${on?'var(--ok)':'var(--crit)'}"/>`
+   +`<text x="${x-36}" y="${y+ih/2+22}" fill="var(--tx)" font-size="14" class="cond" style="font-family:'Barlow Condensed',sans-serif;font-weight:600">${r.name}</text>`
+   +`<text x="${x}" y="${y+ih/2+38}" text-anchor="middle" fill="var(--faint)" font-size="10.5">${r.role}${r.role==='head'?' &middot; rank 0':''} &middot; ${rail}</text>`
+   +`<text x="${x-4}" y="${y+ih/2+60}" text-anchor="end" fill="${uColor(u)}" font-size="19" style="font-family:'Barlow Condensed',sans-serif;font-weight:600">${u!=null?u+'%':'--'}</text>`
+   +(st.gpu_temp!=null?`<text x="${x+2}" y="${y+ih/2+60}" fill="var(--mut)" font-size="11">&middot; ${st.gpu_temp}&deg;C</text>`:'')
    +`</g>`});
  return `<div class="diagram">${o}</svg></div>`;
 }
