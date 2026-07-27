@@ -31,7 +31,12 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT="$HERE/spark-monitor.py"
 LOG="${XDG_DATA_HOME:-$HOME/.local/share}/spark-monitor/keepalive.log"
 
-if pgrep -f "spark-monitor[.]py" >/dev/null 2>&1; then
+# Match the interpreter too, not just the filename. `spark-monitor[.]py` alone
+# also matches `vim spark-monitor.py` or `less spark-monitor.py` — so editing
+# the file while the server is down would convince this check it is running,
+# and it would never be restarted. Verified: the loose pattern matches an open
+# editor; this one does not.
+if pgrep -f -- "python3? -u .*spark-monitor\.py\$" >/dev/null 2>&1; then
   exit 0
 fi
 

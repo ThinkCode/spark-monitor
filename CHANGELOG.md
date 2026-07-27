@@ -12,6 +12,9 @@ All notable changes to this project are documented here. Format follows
 - `contrib/keepalive.sh` for systems without systemd.
 
 ### Fixed
+- `contrib/keepalive.sh` matched on the filename alone, so `vim spark-monitor.py`
+  counted as a running server: editing the file while it was down meant the keepalive
+  would never restart it. It now matches the interpreter too.
 - The cron keepalive documented in INSTALL.md was a silent no-op: `pgrep -f` matched
   the cron shell's own command line, so it always believed the dashboard was running
   and never restarted it. Replaced with `contrib/keepalive.sh`, whose own command line
