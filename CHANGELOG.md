@@ -6,6 +6,24 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- Screenshots in the README and guides, also served to the in-dashboard docs drawer
+  at `/docs-images/<name>`. The markdown renderer now handles `![alt](src)`.
+- `contrib/keepalive.sh` for systems without systemd.
+
+### Fixed
+- The cron keepalive documented in INSTALL.md was a silent no-op: `pgrep -f` matched
+  the cron shell's own command line, so it always believed the dashboard was running
+  and never restarted it. Replaced with `contrib/keepalive.sh`, whose own command line
+  does not contain the pattern. Verified: the old one-liner started no process at all;
+  the script starts one, refuses to start a second, and recovers after a kill.
+- The docs drawer's markdown renderer mangled several standard constructs: `*italic*`
+  printed literal asterisks, `*italic*` nested inside `**bold**` broke both, list items
+  wrapped across source lines were split into separate bullets, and paragraphs wrapped
+  across lines broke any `**bold**` or `[link]` spanning the break.
+- A node that was switched off cost the full SSH connect timeout on every probe,
+  serially, adding roughly 20 s to a cold poll. A single liveness check now fails fast.
+
 ## [1.0.0] — 2026-07-27
 
 First public release.

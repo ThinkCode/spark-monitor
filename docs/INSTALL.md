@@ -114,7 +114,7 @@ will show as unreachable.
 
 ## Method 4 — cron, for systems without systemd
 
-A one-line keepalive that restarts the dashboard within five minutes if it dies, and
+Use the supplied script, which restarts the dashboard within five minutes if it dies and
 starts it after a reboot:
 
 ```bash
@@ -122,15 +122,28 @@ crontab -e
 ```
 
 ```cron
-*/5 * * * * pgrep -f "spark-monitor[.]py" >/dev/null || (cd $HOME/spark-monitor && setsid nohup python3 -u spark-monitor.py >> $HOME/.local/share/spark-monitor/run.log 2>&1 < /dev/null &)
+*/5 * * * * $HOME/spark-monitor/contrib/keepalive.sh
 ```
 
-Two details that matter, both learned the hard way:
+**Do not inline the check into the cron line.** The obvious one-liner —
+`pgrep -f "spark-monitor[.]py" >/dev/null || python3 …` — is a silent no-op.
+`pgrep -f` matches every process's full command line, including the shell cron just
+started to run that line, and that shell's command line necessarily contains
+`spark-monitor.py`. So pgrep always finds a "match", the `||` never fires, and the
+keepalive never restarts anything. Bracketing the pattern doesn't save it either: the
+bracket stops the pattern matching itself, but the unbracketed path being executed is
+still right there on the same command line.
 
-- The `[.]` in `spark-monitor[.]py` stops `pgrep` from matching the cron job's own
-  shell command, which would otherwise make it think the dashboard is always running.
-- `setsid ... < /dev/null` is required. A plain `nohup ... &` started from a
-  non-interactive shell dies when that shell exits.
+Putting the logic in a script fixes it, because the script's own command line is just its
+path. [contrib/keepalive.sh](../contrib/keepalive.sh) explains this at the top, and also
+uses `setsid … </dev/null` — a plain `nohup … &` from cron's non-interactive shell dies
+the moment cron exits.
+
+Verify it actually works, rather than trusting it:
+
+```bash
+pkill -f "spark-monitor[.]py" && sleep 300 && curl -fsS http://127.0.0.1:8088/healthz
+```
 
 ## Firewall
 
