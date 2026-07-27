@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/ThinkCode/spark-monitor/blob/main/docs/TROUBLESHOOTING.md
+    about: Most problems are solved here — check before filing an issue.
+  - name: Report a security vulnerability
+    url: https://github.com/ThinkCode/spark-monitor/security/advisories/new
+    about: Please report privately, not as a public issue.

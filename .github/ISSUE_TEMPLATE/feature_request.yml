@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest something Spark Monitor should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things worth reading first, so you don't spend time on a proposal
+        that will be declined on principle:
+
+        - [The zero-dependency rule](../blob/main/CONTRIBUTING.md#the-one-rule-zero-dependencies)
+          — `spark-monitor.py` imports only the standard library, always. No pip
+          packages, no CDN scripts, no charting libraries.
+        - [Deliberately not done](../blob/main/docs/ARCHITECTURE.md#deliberately-not-done)
+          — several popular ideas are listed there with the reasons they were rejected,
+          including remote power control, a React stack, and a database.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation you're in, not the implementation you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This needs no new dependencies (no pip packages, no external scripts or fonts)
+          required: true
+        - label: I've checked it isn't in "Deliberately not done"
+          required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Anything you've already tried?
+      description: Including whether the JSON API could give you this outside the dashboard.

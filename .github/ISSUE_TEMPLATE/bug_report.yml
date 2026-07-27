@@ -1,0 +1,67 @@
+name: Bug report
+description: Something is blank, wrong, or unreachable
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, please try [docs/TROUBLESHOOTING.md](../blob/main/docs/TROUBLESHOOTING.md)
+        — it covers most problems, including blank charts, unreachable nodes and
+        models showing as down while running.
+
+        **Redact your IP addresses and hostnames** in anything you paste below.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you expected, what you got instead, and whether it worked before.
+    validations:
+      required: true
+
+  - type: textarea
+    id: check
+    attributes:
+      label: Output of --check
+      description: "`python3 spark-monitor.py --check` — redact addresses and hostnames."
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: "`journalctl --user -u spark-monitor -n 50 --no-pager`"
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Spark Monitor version or commit
+      placeholder: "1.0.0, or the output of: git rev-parse --short HEAD"
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      placeholder: "e.g. 2x DGX Spark, or 1x ASUS Ascent GX10"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and Python
+      description: "`uname -a` and `python3 --version`"
+      placeholder: "DGX OS 6 / Ubuntu 24.04, Python 3.10.12"
+    validations:
+      required: true
+
+  - type: input
+    id: engine
+    attributes:
+      label: Inference engine, if relevant
+      placeholder: "vLLM 0.11 on port 8000 / llama.cpp with --metrics"

@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy to ~/.config/spark-monitor/config.json and edit. Every key is optional; see docs/CONFIGURATION.md. JSON has no comments, so delete the _comment keys.",
+
+  "cluster_name": "My Spark Cluster",
+  "port": 8088,
+  "bind": "0.0.0.0",
+
+  "_comment_nodes": "host: null means the machine running the dashboard. All other nodes need passwordless SSH from it - see docs/MULTI-NODE.md.",
+  "nodes": [
+    { "id": "n1", "name": "spark-1", "role": "head",   "host": null },
+    { "id": "n2", "name": "spark-2", "role": "worker", "host": "10.0.0.12" }
+  ],
+
+  "_comment_ports": "Ports where an inference engine might be listening. vLLM defaults to 8000, llama.cpp to 8080. List only what you use.",
+  "serve_ports": [8000, 8080, 8888],
+
+  "_comment_power": "Starting values only; the UI's Settings form overrides them. Calibrate with a smart plug - see docs/METRICS.md.",
+  "power": { "price_kwh": 0.15, "currency": "$", "idle_w": 50, "load_w": 200 }
+}

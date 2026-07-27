@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local config and runtime state must never be committed: they contain your
+# node addresses, hostnames and usage history.
+config.json
+*.local.json
+history.jsonl
+settings.json
+catalog.json
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db

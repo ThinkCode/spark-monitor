@@ -1,0 +1,38 @@
+[Unit]
+Description=Spark Monitor — DGX Spark cluster dashboard
+Documentation=https://github.com/ThinkCode/spark-monitor
+# Metrics from other nodes are collected over SSH, so wait for the network.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@PYTHON@ -u @SCRIPT@
+WorkingDirectory=@WORKDIR@
+Restart=always
+RestartSec=5
+# Whatever the cause, we want the dashboard back — but stop flapping forever if
+# it is genuinely misconfigured.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+# It is a monitor: it should never compete with an inference job for CPU.
+Nice=10
+
+# Modest hardening. Note what is deliberately NOT set:
+#   ProtectHome  — the dashboard reads ~/.ssh to reach other nodes, and SSH
+#                  writes ~/.ssh/known_hosts the first time it sees a host.
+#                  Its config and history also live under $HOME by default.
+#   PrivateTmp   — harmless here, but it hides /tmp from you while debugging.
+# ProtectSystem=full keeps /usr, /boot and /etc read-only, which is the part
+# that actually matters: nothing this process does should ever write there.
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+# Generous headroom: measured usage is well under 100 MB with 45 days of
+# history, but a very large history file is parsed in memory.
+MemoryMax=512M
+
+[Install]
+WantedBy=default.target

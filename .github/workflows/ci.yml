@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.8 is the floor we promise; 3.12 catches deprecations early.
+        python-version: ['3.8', '3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Compile
+        run: python -m py_compile spark-monitor.py spark-catalog.py
+
+      - name: Assert zero dependencies
+        # The project's central promise, enforced mechanically rather than by
+        # review. See CONTRIBUTING.md.
+        run: python .github/assert_stdlib_only.py
+
+      - name: CLI works
+        run: |
+          python spark-monitor.py --version
+          python spark-monitor.py --help > /dev/null
+          python spark-catalog.py --help > /dev/null
+
+      - name: Starter config is written and reloads cleanly
+        run: |
+          python spark-monitor.py --config /tmp/generated.json --write-config
+          cat /tmp/generated.json
+          python -c "import json; assert json.load(open('/tmp/generated.json'))['nodes']"
+
+      - name: Example config parses
+        run: |
+          python -c "
+          import json
+          c = json.load(open('nodes.example.json'))
+          assert c['nodes'], 'example config has no nodes'
+          print('ok:', len(c['nodes']), 'nodes')"
+
+      - name: Smoke test
+        run: .github/smoke-test.sh
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: shellcheck install.sh .github/smoke-test.sh
+
+      - name: systemd unit is well-formed
+        run: |
+          sed -e 's|@PYTHON@|/usr/bin/python3|' \
+              -e 's|@SCRIPT@|/tmp/x.py|' \
+              -e 's|@WORKDIR@|/tmp|' \
+              contrib/spark-monitor.service > /tmp/unit.service
+          grep -q '^ExecStart=/usr/bin/python3' /tmp/unit.service
+          systemd-analyze verify /tmp/unit.service || true
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No dead relative links between markdown files
+        run: python .github/check_links.py
+
+      - name: No leaked private addresses or hostnames
+        # Guards against a contributor pasting real infrastructure into a doc.
+        run: python .github/check_no_pii.py

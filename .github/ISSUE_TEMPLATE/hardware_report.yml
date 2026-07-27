@@ -1,0 +1,69 @@
+name: Hardware compatibility report
+description: Tell us what it does (or doesn't) work on — genuinely useful, takes two minutes
+labels: [compatibility]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Spark Monitor was developed on DGX Sparks and ASUS Ascent GX10s. Reports from
+        other hardware, distributions and engines help everyone. **Redact addresses
+        and hostnames** in the output below.
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      placeholder: "e.g. 1x ASUS Ascent GX10, or 3x DGX Spark"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and Python
+      placeholder: "DGX OS 6, Python 3.10.12"
+    validations:
+      required: true
+
+  - type: input
+    id: engine
+    attributes:
+      label: Inference engine
+      placeholder: "vLLM 0.11 / llama.cpp b4123 / none yet"
+
+  - type: dropdown
+    id: overall
+    attributes:
+      label: Overall
+      options:
+        - Everything worked
+        - Mostly worked, some panels blank
+        - Did not work
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What populated correctly?
+      options:
+        - label: GPU utilization, temperature and power
+        - label: CPU, memory and storage
+        - label: SoC hotspot temperature
+        - label: NVMe temperature
+        - label: Fabric rails detected / topology diagram correct
+        - label: Model name and context size
+        - label: Throughput and request counters
+        - label: Trend charts after a few minutes
+
+  - type: textarea
+    id: check
+    attributes:
+      label: Output of --check
+      description: "`python3 spark-monitor.py --check` — redacted"
+      render: text
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything blank, wrong, or that needed a workaround?

@@ -1,0 +1,8 @@
+{
+  "_comment": "Used by CI only. A runner has no GPU, so every collector returns empty - which is the graceful-degradation path we want covered.",
+  "cluster_name": "CI",
+  "port": 18099,
+  "bind": "127.0.0.1",
+  "data_dir": "/tmp/spark-monitor-ci",
+  "nodes": [{ "id": "ci", "name": "ci-runner", "role": "head", "host": null }]
+}
