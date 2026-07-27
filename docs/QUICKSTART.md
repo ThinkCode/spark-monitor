@@ -81,6 +81,11 @@ You should see your node's card filling in: GPU utilization, temperature, memory
 storage, uptime. The dot next to the title is red until a model is serving — that's
 expected if you haven't started one.
 
+![One node card per machine, showing GPU utilization and temperature, CPU load, memory, storage, SoC hotspot and NVMe temperatures, uptime and running containers](images/nodes.png)
+
+With one Spark you'll see a single card. The screenshot above is a three-node cluster —
+that's the same view once you've added the others.
+
 **Nothing loads?** Try `curl -s http://127.0.0.1:8088/healthz` on the Spark itself. If
 that prints `ok`, the dashboard is fine and something between your browser and the
 Spark is blocking it — usually a firewall. See

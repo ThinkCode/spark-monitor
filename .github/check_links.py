@@ -8,7 +8,9 @@ import pathlib
 import re
 import sys
 
-LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+# Markdown links and images, plus raw <img src> — the docs use a few HTML tags
+# for side-by-side layout, and a broken src there is just as broken.
+LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)|<img[^>]+src=[\"']([^\"']+)[\"']")
 root = pathlib.Path(".")
 failed = False
 
@@ -16,7 +18,7 @@ for md in sorted(root.rglob("*.md")):
     if ".git" in md.parts:
         continue
     for m in LINK.finditer(md.read_text(encoding="utf-8")):
-        target = m.group(1).split("#")[0].strip()
+        target = (m.group(1) or m.group(2)).split("#")[0].strip()
         if not target or target.startswith(("http://", "https://", "mailto:")):
             continue
         if not (md.parent / target).resolve().exists():

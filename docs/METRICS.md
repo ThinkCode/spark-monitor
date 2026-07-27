@@ -8,6 +8,8 @@ an estimate.
 
 ## Temperatures
 
+![Thermals and placement: GPU temperature and SoC hotspot charts for three nodes, a 24-hour per-sensor summary, and a placement hint comparing nodes](images/thermals.png)
+
 ### GPU temperature
 
 The GPU die. This is the straightforward one. Under sustained load, 60–80 °C is normal.
@@ -106,7 +108,11 @@ shared between CPU and GPU, so this is the number that predicts an OOM.
 
 ## Usage & trends
 
+![Stat tiles for generated tokens, prompt tokens processed, requests, peak queue, duty cycle and busiest hour, above throughput, GPU, capacity and busy-times charts](images/trends.png)
+
 ### Usage sessions
+
+![Usage sessions listing when the cluster was active, for how long and how many tokens it produced, beside a cluster events panel](images/activity.png)
 
 Contiguous stretches of real activity, derived from the dashboard's own 60-second
 samples — a session starts when tokens flow or a request is running, and ends after ~4
@@ -148,6 +154,8 @@ All timestamps render in your browser's local time.
 ---
 
 ## Power & cost
+
+![Estimated cost per day, month and year, energy over 24 hours and current draw, with a cluster watts chart and per-node energy breakdown](images/power.png)
 
 ### These numbers are estimates. Here's exactly why.
 

@@ -39,6 +39,7 @@ import time
 import struct
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import unquote
 
 APP_NAME = "Spark Monitor"
 VERSION = "1.0.0"
@@ -1844,6 +1845,13 @@ function inline(s){return esc(s)
  /* italics AFTER bold: by this point no ** pairs remain, so a lone * is
     unambiguous. Without this rule *emphasis* rendered as literal asterisks. */
  .replace(/\*([^*\n]+?)\*/g,'<i>$1</i>')
+ /* Images BEFORE links, since ![alt](src) contains [alt](src). Docs reference
+    them by relative path; only the filename is kept and resolved against what
+    /docs-images/ actually serves. */
+ .replace(/!\[([^\]]*)\]\(([^)]+)\)/g,function(m,alt,src){
+   const f=src.split('/').pop().split('?')[0];
+   return '<img src="/docs-images/'+encodeURIComponent(f)+'" alt="'+alt.replace(/"/g,'&quot;')+'"'
+    +' loading="lazy" style="display:block;max-width:100%;height:auto;border-radius:6px;margin:10px 0">'})
  .replace(/\[([^\]]+)\]\(([^)]+)\)/g,function(m,txt,url){
    if(url.endsWith('.md')){const f=url.split('/').pop();return '<a href="#" data-doc="'+f+'">'+txt+'</a>'}
    return '<a href="'+url+'" target="_blank">'+txt+'</a>'})}
@@ -1936,6 +1944,28 @@ def doc_index():
     return out
 
 
+DOC_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg",
+                   ".jpeg": "image/jpeg", ".webp": "image/webp",
+                   ".gif": "image/gif", ".svg": "image/svg+xml"}
+
+
+def doc_image_index():
+    """Images the docs drawer may show, as {basename: absolute path}.
+
+    Same dictionary-resolution rule as doc_index(): a request either names a key
+    we put here or gets a 404, so no URL path is ever joined onto a directory.
+    """
+    out = {}
+    for d in ({os.path.join(DOCS_DIR, "images")} if DOCS_DIR else set()) | \
+             {os.path.join(HERE, "docs", "images")}:
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d)):
+            if os.path.splitext(f)[1].lower() in DOC_IMAGE_TYPES:
+                out.setdefault(f, os.path.join(d, f))
+    return out
+
+
 def doc_list():
     """Drawer index: filename plus a human title taken from the first heading."""
     docs = []
@@ -2021,6 +2051,15 @@ class H(BaseHTTPRequestHandler):
                 return
             with open(fp, encoding="utf-8") as f:
                 self._send(f.read(), "text/plain; charset=utf-8")
+        elif path.startswith("/docs-images/"):
+            name = unquote(path[len("/docs-images/"):])
+            fp = doc_image_index().get(name)
+            if not fp:
+                self.send_error(404)
+                return
+            with open(fp, "rb") as f:
+                self._send(f.read(), DOC_IMAGE_TYPES[os.path.splitext(fp)[1].lower()],
+                           cache="public, max-age=86400")
         elif path.startswith("/assets/"):
             # Self-hosted fonts. Immutable, so cache hard — the dashboard may
             # be running with no internet access at all.

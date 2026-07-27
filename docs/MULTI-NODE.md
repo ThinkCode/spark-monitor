@@ -104,6 +104,8 @@ topology diagram.
 
 ## The topology diagram
 
+![Two topology groups: two nodes joined by a direct fabric link with two RoCE rails, and a third node shown as standalone. Each group has its own models and throughput panel beside it](images/topology.png)
+
 The diagram is drawn from **live cabling**, not from your config. On every poll each
 node reports which of its interfaces are backed by an RoCE/InfiniBand device and what
 addresses they carry. Nodes sharing a fabric subnet are directly linked; each connected

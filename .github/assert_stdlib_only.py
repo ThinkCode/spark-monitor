@@ -13,7 +13,7 @@ import sys
 ALLOWED = {
     "argparse", "ast", "concurrent", "http", "importlib", "json", "os",
     "pathlib", "re", "struct", "subprocess", "sys", "threading", "time",
-    "zlib",
+    "urllib", "zlib",
 }
 
 failed = False

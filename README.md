@@ -10,6 +10,8 @@ your laptop or phone.
 It scales from one Spark to a cabled cluster of them. Adding a node is one line of
 config — every card, chart and diagram follows automatically.
 
+![The Spark Monitor dashboard: node health cards for three machines, an auto-drawn topology diagram of the fabric link between two of them, and a live models and throughput panel](docs/images/hero.png)
+
 ```bash
 git clone https://github.com/ThinkCode/spark-monitor.git
 cd spark-monitor
@@ -38,7 +40,26 @@ Open `http://<your-spark>:8088`.
 | **Docs drawer** | This documentation, readable inside the dashboard — including on your phone |
 | **Installable** | Add it to your iPhone or Android home screen and it behaves like an app |
 
-Works in light and dark themes, on desktop and phone.
+### Trends, thermals and cost
+
+Below the live cards, the same data over time — throughput split into generated and
+prompt tokens, when the cluster was actually working, how hot each node runs, and what
+it costs you.
+
+![Usage and trends: stat tiles for generated and prompt tokens, requests, peak queue and duty cycle, above charts for throughput, GPU utilization, memory and KV cache, and a day-by-hour busy-times heatmap](docs/images/trends.png)
+
+![Thermals and placement: GPU temperature and SoC hotspot charts per node, with a 24-hour summary and an automatic hint when nodes differ in temperature](docs/images/thermals.png)
+
+![Power and cost: estimated cost per day, month and year, energy over 24 hours, current draw, a cluster watts chart, and per-node energy breakdown](docs/images/power.png)
+
+### Light theme, and your phone
+
+Both themes come from one set of CSS variables, and the layout reflows to one column on a
+phone — where it installs to your home screen and behaves like an app.
+
+![The same dashboard in the light theme](docs/images/hero-light.png)
+
+![The dashboard on a phone: node cards stacked vertically with the topology diagram below them](docs/images/mobile.png)
 
 ## Design principles
 

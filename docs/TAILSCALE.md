@@ -85,6 +85,10 @@ It launches full-screen with its own icon and no browser chrome — it behaves l
 native app. Because it's just the page, it's always up to date; there's nothing to
 update.
 
+![Spark Monitor on a phone: the node cards stack vertically, with the topology diagram below them](images/mobile.png)
+
+Everything reflows to one column — the same data, no separate mobile build.
+
 ---
 
 ## Things worth knowing
