@@ -26,6 +26,11 @@ jobs:
       - name: Compile
         run: python -m py_compile spark-monitor.py spark-catalog.py
 
+      - name: Embedded JavaScript parses
+        # The UI is a Python string, so a JS syntax error is invisible to
+        # py_compile and the server still returns 200 with a dead page.
+        run: python .github/check_embedded_js.py
+
       - name: Assert zero dependencies
         # The project's central promise, enforced mechanically rather than by
         # review. See CONTRIBUTING.md.

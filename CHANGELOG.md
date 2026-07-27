@@ -12,6 +12,12 @@ All notable changes to this project are documented here. Format follows
 - `contrib/keepalive.sh` for systems without systemd.
 
 ### Fixed
+- The docs drawer's emphasis handling ran across code-span contents, so an asterisk
+  inside a code span paired with a real italic marker later in the line and corrupted
+  both. Code spans are now opaque to emphasis, as markdown specifies.
+- Blockquotes were rendered line by line, so `**bold**` wrapping across lines broke and
+  fenced code inside a quote was ignored. They are now collected and rendered
+  recursively.
 - `contrib/keepalive.sh` matched on the filename alone, so `vim spark-monitor.py`
   counted as a running server: editing the file while it was down meant the keepalive
   would never restart it. It now matches the interpreter too.

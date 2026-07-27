@@ -12,8 +12,8 @@ import sys
 # Modules this project may import. Everything here ships with CPython.
 ALLOWED = {
     "argparse", "ast", "concurrent", "http", "importlib", "json", "os",
-    "pathlib", "re", "struct", "subprocess", "sys", "threading", "time",
-    "urllib", "zlib",
+    "pathlib", "re", "shutil", "struct", "subprocess", "sys", "tempfile",
+    "threading", "time", "urllib", "zlib",
 }
 
 failed = False

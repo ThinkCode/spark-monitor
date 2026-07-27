@@ -1836,8 +1836,15 @@ async function openDoc(f,t){$('dtitle').textContent=t;$('dback').style.display='
  try{const md=await(await fetch('/docs/'+f)).text();$('dbody').innerHTML=render(md);$('dbody').scrollTop=0}
  catch(e){$('dbody').innerHTML='<div class="kv">failed to load</div>'}}
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function inline(s){return esc(s)
- .replace(/`([^`]+)`/g,'<code>$1</code>')
+function inline(s){
+ /* Code spans are lifted out BEFORE emphasis and put back after. Otherwise the
+    emphasis regexes run across their contents: an asterisk inside a code span
+    (a cron schedule, a glob) pairs with a real italic marker later in the line,
+    corrupting both and leaving orphan asterisks on screen. Markdown treats code
+    spans as opaque; so do we. \u0001 cannot occur in the escaped text. */
+ const spans=[];
+ return esc(s)
+ .replace(/`([^`]+)`/g,function(m,c){spans.push(c);return '\u0001'+(spans.length-1)+'\u0001'})
  /* Non-greedy, and the body may contain single asterisks — otherwise a nested
     *italic* inside **bold** stopped the bold from matching at all, and both
     sets of markers printed literally. */
@@ -1854,7 +1861,8 @@ function inline(s){return esc(s)
     +' loading="lazy" style="display:block;max-width:100%;height:auto;border-radius:6px;margin:10px 0">'})
  .replace(/\[([^\]]+)\]\(([^)]+)\)/g,function(m,txt,url){
    if(url.endsWith('.md')){const f=url.split('/').pop();return '<a href="#" data-doc="'+f+'">'+txt+'</a>'}
-   return '<a href="'+url+'" target="_blank">'+txt+'</a>'})}
+   return '<a href="'+url+'" target="_blank">'+txt+'</a>'})
+ .replace(/\u0001(\d+)\u0001/g,function(m,i){return '<code>'+spans[+i]+'</code>'})}
 document.addEventListener('click',function(ev){const a=ev.target.closest('a[data-doc]');
  if(a){ev.preventDefault();openDoc(a.getAttribute('data-doc'),a.textContent)}});
 function render(md){const out=[];const lines=md.split('\n');let inCode=false,code=[],tbl=[];
@@ -1889,7 +1897,17 @@ function render(md){const out=[];const lines=md.split('\n');let inCode=false,cod
   /* indented, non-blank, and a list item is open => continuation of that item */
   if(item!==null&&/^\s{2,}\S/.test(L)){item.text+=' '+L.trim();continue}
   flushL();
-  if(L.startsWith('>')){flushP();out.push('<div style="border-left:3px solid var(--bl);padding:4px 10px;color:var(--mut);margin:6px 0">'+inline(L.slice(1).trim())+'</div>');continue}
+  /* Blockquote: collect the whole run of '>' lines, strip the markers and
+     render the inside recursively. One div per line broke **bold** wrapping
+     across lines and ignored fenced code inside a quote — the same failure the
+     paragraph buffer fixes, in the other branch. */
+  if(L.startsWith('>')){flushP();
+   const q=[];
+   while(i<lines.length&&lines[i].startsWith('>')){q.push(lines[i].replace(/^>\s?/,''));i++}
+   i--;
+   out.push('<div style="border-left:3px solid var(--bl);padding:4px 10px;color:var(--mut);margin:6px 0">'
+    +render(q.join('\n'))+'</div>');
+   continue}
   if(L.trim()==='---'){flushP();out.push('<hr style="border:none;border-top:1px solid var(--soft);margin:12px 0">');continue}
   if(L.trim()===''){flushP();continue}
   para.push(L.trim())}
