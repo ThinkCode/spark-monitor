@@ -1,0 +1,17 @@
+{
+  "_comment": "Copy to ~/.config/spark-monitor/estop-agent.json and edit. Only needed when the thing you want to pause runs somewhere other than the dashboard host - otherwise use hooks in profiles.json. Guide: docs/ESTOP.md.",
+
+  "dashboard": "http://127.0.0.1:8088",
+
+  "_comment_token": "Must match control.token on the dashboard. Leave null and set SPARK_MONITOR_TOKEN in the environment instead if you would rather not have it in a file.",
+  "token": null,
+
+  "poll_seconds": 5,
+
+  "_comment_commands": "Any shell command. {profile} and {reason} are substituted. Leave pause_command null to connect and acknowledge without pausing anything - useful for a first run.",
+  "pause_command": null,
+  "resume_command": null,
+
+  "_comment_paused": "Optional. Exit 0 means 'currently paused'. Without it the agent tracks its own state in memory, which is fine until it restarts mid-switch.",
+  "paused_command": null
+}

@@ -164,6 +164,77 @@ When present: `models[]` with `name`, `bytes`, `copies`, `locations[]`, `served_
 `on_shared`, `required_reason`, `redundant_bytes`; plus `nas` (shared storage state),
 `nodes[]` and `reclaimable_bytes`.
 
+## `GET /api/topology` · `GET /api/topology/log`
+
+Profiles, which one is active, and the state of any switch in progress. Open to
+any reader — it describes your cluster but changes nothing.
+
+`POST /api/topology/switch` starts one, and **requires control to be enabled
+and an `X-Spark-Token` header**. Body: `{"profile": "big"}`, plus optional
+`"skip_pause": true`.
+
+## `GET /api/estop` · `POST /api/estop/ack`
+
+Used by `estop-agent.py`. Both require the control token. `GET` reports whether
+a pause is wanted; `POST` acknowledges that it is in effect, which is what the
+switcher waits for before stopping anything.
+
+Authorisation failures are specific on purpose — `404` control disabled, `403`
+network not allowed, `401` bad token — because this runs on your own network
+and a control surface that refuses without saying why wastes an evening.
+
+## `GET /api/firmware`
+
+Version and update inventory for every node. Read-only; nothing is installed.
+
+`?refresh=1` forces a re-sweep. A sweep runs `fwupdmgr` on every node over SSH
+and takes tens of seconds, so results are cached and refreshed on a background
+thread — the first call may return `"loading": true` with an empty `nodes`
+list, which is normal rather than an error.
+
+```json
+{
+  "ts": 1770000000.0,
+  "age_s": 42,
+  "loading": false,
+  "updates": 4,
+  "nodes": [
+    {
+      "name": "node-1",
+      "vendor": "ASUSTeK COMPUTER INC.",
+      "product": "GX10",
+      "bios": "GX10DGX.0105.2026.0505.1153",
+      "bios_date": "05/05/2026",
+      "bios_newest_seen": "GX10DGX.0105.2026.0505.1153",
+      "bios_drift": false,
+      "driver": "580.173.02",
+      "kernel": "6.17.0-1029-nvidia",
+      "fw_devices": [{ "name": "Embedded Controller", "version": "0x02000006" }],
+      "fw_updates": [],
+      "pkg_updates": [],
+      "apt_cache_age_h": 0.4,
+      "needs_reboot": false,
+      "needs_maintenance": false,
+      "commands": [],
+      "error": null
+    }
+  ],
+  "reported": {}
+}
+```
+
+`updates` counts what a person could act on: pending firmware, pending
+packages, BIOS drift, and any unreachable node — an unreachable node is *not*
+counted as up to date.
+
+`commands` are generated from what is actually pending on that node, for a
+human to run as root. `error` is per node, so one unreachable machine does not
+blank the report.
+
+`reported` carries versions collected by something outside the dashboard (see
+`firmware_report` in [CONFIGURATION.md](CONFIGURATION.md)); it includes a `ts`
+and a `stale` flag.
+
 ## `GET /api/docs` · `GET /docs/<file>.md`
 
 The docs drawer. `/api/docs` returns `[{file, title}]`; `/docs/<file>.md` returns raw

@@ -47,6 +47,9 @@ an error, so a config from a newer version won't stop an older one from starting
   "serve_ports": [8000, 8080, 8888],
   "router_port": null,
   "fabric_prefix": null,
+  "firmware_report": null,
+  "control": { "enabled": false, "token": null, "networks": null },
+  "profiles_file": null,
 
   "engine_patterns": ["vllm", "llama", "sglang", "tgi"],
 
@@ -146,6 +149,52 @@ Common defaults: vLLM `8000`, llama.cpp `8080`, SGLang `30000`, Ollama `11434`.
 *Integer or null, default `null`.* If you run a proxy or router in front of several
 engines on one endpoint, put its port here. It gets asked first for the model list,
 because it knows about models the individual engines can't see.
+
+### `firmware_report`
+
+*String or null, default `null`.* Path to a JSON file of versions collected by
+something other than the dashboard — a managed switch it has no credentials
+for, a UPS, or a tool installed on your laptop rather than the cluster. The
+Firmware drawer renders it under **Reported externally**.
+
+The dashboard **only reads** this file. Nothing writes it but you, which keeps
+the server's single-write-endpoint property intact. Give each entry a `ts`
+(epoch seconds) and anything over an hour old is flagged stale, so a reporter
+that has quietly died is visible rather than showing old versions as current.
+
+Format and an example are in [FIRMWARE.md](FIRMWARE.md).
+
+### `control`
+
+*Object, default off.* Enables the endpoints that can **change** your cluster —
+topology switching. Everything else this server does is read-only, and this
+stays off until you deliberately turn it on.
+
+```json
+"control": {
+  "enabled": true,
+  "token": "a-long-random-string",
+  "networks": ["127.0.0.0/8", "100.64.0.0/10"]
+}
+```
+
+The token must be sent in an `X-Spark-Token` header — not a form field, not a
+query parameter. That is what stops a web page you happen to visit from
+submitting a switch to your dashboard behind your back. Tokens under 16
+characters are refused, and `enabled` without a token refuses to enable.
+
+`networks` defaults to loopback and the Tailscale range. Read
+[TOPOLOGY.md](TOPOLOGY.md#security-what-is-actually-safe) before widening it —
+the risks are specific and worth understanding.
+
+Set `SPARK_MONITOR_TOKEN` in the environment instead of `token` if your config
+lives in a git repo.
+
+### `profiles_file`
+
+*String or null.* Path to your topology profiles. Defaults to
+`~/.config/spark-monitor/profiles.json`. Start from `profiles.example.json`;
+the fields are explained in [TOPOLOGY.md](TOPOLOGY.md#writing-profilesjson).
 
 ### `fabric_prefix`
 

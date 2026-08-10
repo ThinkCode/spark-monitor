@@ -120,3 +120,26 @@ and don't publish before a fix is available.
 ## Supported versions
 
 The latest release on `main` is what gets fixes. There are no long-term support branches.
+
+
+## Control endpoints
+
+Topology switching can stop and start models. It is **disabled by default** and
+requires two things to enable: `control.enabled`, and a token of at least 16
+characters. Enabling without a token refuses and logs why.
+
+The token must be sent in an `X-Spark-Token` header. It is never accepted as a
+query parameter or form field, and that is a deliberate CSRF defence rather
+than a style preference: this dashboard has no login, so a page you visit in
+the same browser could otherwise POST a switch to it. A cross-origin request
+cannot set a custom header without a preflight this server never grants.
+
+Comparisons use `hmac.compare_digest`. A network allowlist applies as well,
+defaulting to loopback and the Tailscale CGNAT range.
+
+Over plain HTTP the token crosses the network in clear text. For anything
+beyond a trusted LAN, reach the dashboard over a WireGuard-based VPN or an SSH
+tunnel. Do not expose this on the public internet: there is no rate limiting
+and no account lockout.
+
+See [docs/TOPOLOGY.md](docs/TOPOLOGY.md#security-what-is-actually-safe).
