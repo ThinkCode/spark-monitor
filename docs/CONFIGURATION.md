@@ -208,6 +208,29 @@ need at least 30.
 point. This is the only continuous work Spark Monitor does. Lowering it gives finer
 charts and a bigger file; there is rarely a reason to.
 
+### `historian`
+
+*Object or null, default `null` (off).* Also push every sample to a long-term time-series
+store, such as VictoriaMetrics on a Mac mini — see
+[contrib/macmini-historian](../contrib/macmini-historian/README.md).
+
+```json
+"historian": { "url": "http://mac-mini.local:8428", "format": "influx-line", "buffer_mb": 20 }
+```
+
+| Key | Meaning |
+|---|---|
+| `url` | Base URL of anything that accepts Influx line protocol at `/write` (VictoriaMetrics, InfluxDB 1.x). |
+| `format` | Only `influx-line` for now; anything else disables the push. |
+| `buffer_mb` | Cap on the retry spool, default `20` — weeks of samples. When full, the oldest half is dropped. |
+
+`history.jsonl` stays the source of truth for the dashboard; the historian is a copy.
+The sampler only appends to `historian-spool.lp` in `data_dir`; a separate thread POSTs
+it and truncates on success, backing off up to 5 minutes while the target is
+unreachable. A sleeping Mac mini never delays sampling, and the backlog arrives with its
+original timestamps when it wakes. Uses only `urllib`. Series are listed in
+[API.md](API.md#long-term-history-victoriametrics).
+
 ### `catalog`
 
 *Object.* Only used by `spark-catalog.py`; the dashboard ignores it.

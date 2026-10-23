@@ -40,6 +40,7 @@ import struct
 import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
+from urllib.request import Request, urlopen
 
 APP_NAME = "Spark Monitor"
 VERSION = "1.0.0"
@@ -107,6 +108,11 @@ DEFAULTS = {
     "power": {"price_kwh": 0.15, "currency": "$", "idle_w": 50, "load_w": 200},
     "history_days": 45,
     "sample_seconds": 60,
+    # Optional long-term historian (e.g. VictoriaMetrics on another machine).
+    # Off unless set: {"url": "http://mac-mini.local:8428",
+    # "format": "influx-line", "buffer_mb": 20}. history.jsonl stays the
+    # local source of truth either way.
+    "historian": None,
 }
 
 
@@ -985,12 +991,146 @@ def _prune():
         pass
 
 
+# --- optional historian -----------------------------------------------------
+# Each sample is turned into Influx line protocol and appended to a spool file
+# under data_dir; a separate thread POSTs the spool and truncates it on success.
+# The sampler only ever does a local append, so a sleeping or unreachable
+# historian never delays it, and the spool (capped at buffer_mb, oldest lines
+# dropped) drains on its own once the historian answers again.
+
+HIST_SPOOL = os.path.join(CFG["data_dir"], "historian-spool.lp")
+_spool_lock = threading.Lock()
+_spool_ready = threading.Event()
+_hist_prev = {}                     # previous engine counters, for per-minute rates
+
+
+def _historian():
+    h = CFG.get("historian")
+    if not isinstance(h, dict) or not h.get("url"):
+        return None
+    if h.get("format", "influx-line") != "influx-line":
+        return None
+    return h
+
+
+def _lp_tag(v):
+    return re.sub(r"([ ,=\\])", r"\\\1", str(v))
+
+
+def historian_lines(s):
+    """Line protocol for one sample. VictoriaMetrics names each series
+    <measurement>_<field>, so measurement "spark" yields spark_gpu_util etc."""
+    t, out = s["t"], []
+    cf = conf()
+    span = cf["load_w"] - cf["idle_w"]
+    cluster = _lp_tag(CFG["cluster_name"])
+    for nid, v in (s.get("n") or {}).items():
+        f = {}
+        if "g" in v:
+            f["gpu_util"] = v["g"]
+            f["watts_est"] = round(cf["idle_w"] + span * min(100, max(0, v["g"])) / 100.0, 1)
+        if "tg" in v:
+            f["gpu_temp_c"] = v["tg"]
+        if "tc" in v:
+            f["soc_temp_c"] = v["tc"]
+        if "m" in v:
+            f["mem_pct"] = v["m"]
+        if f:
+            out.append(f"spark,cluster={cluster},node={_lp_tag(nid)} "
+                       + ",".join(f"{k}={x}" for k, x in f.items()) + f" {t}")
+    f = {}
+    if "kv" in s:
+        f["kv_cache_pct"] = s["kv"]
+    if "rr" in s:
+        f["requests_inflight"] = s["rr"]
+    prev = _hist_prev.get("t")
+    for key, name in (("gt", "tokens_generated_per_min"),
+                      ("pt", "tokens_prompt_per_min")):
+        cur = s.get(key)
+        if cur is None:
+            continue
+        old = _hist_prev.get(key)
+        # Counters reset when an engine restarts: skip that interval.
+        if old is not None and prev and t > prev and cur >= old:
+            f[name] = round((cur - old) * 60.0 / (t - prev), 1)
+        _hist_prev[key] = cur
+    _hist_prev["t"] = t
+    if f:
+        out.append(f"spark,cluster={cluster},node=cluster "
+                   + ",".join(f"{k}={x}" for k, x in f.items()) + f" {t}")
+    return out
+
+
+def historian_enqueue(s):
+    if not _historian():
+        return
+    try:
+        lines = historian_lines(s)
+        if not lines:
+            return
+        cap = int(float(_historian().get("buffer_mb", 20)) * 1024 * 1024)
+        with _spool_lock:
+            with open(HIST_SPOOL, "a") as f:
+                f.write("\n".join(lines) + "\n")
+            if os.path.getsize(HIST_SPOOL) > cap:
+                with open(HIST_SPOOL) as f:
+                    data = f.read()
+                data = data[len(data) - cap // 2:]
+                data = data[data.find("\n") + 1:]   # keep whole lines only
+                with open(HIST_SPOOL, "w") as f:
+                    f.write(data)
+        _spool_ready.set()
+    except Exception:
+        pass
+
+
+def historian_flush(chunk=512 * 1024):
+    """Push the spool in chunks; True when it is empty afterwards."""
+    h = _historian()
+    url = h["url"].rstrip("/") + "/write?precision=s"
+    while True:
+        with _spool_lock:
+            try:
+                with open(HIST_SPOOL, "rb") as f:
+                    data = f.read(chunk)
+            except FileNotFoundError:
+                return True
+        if not data:
+            return True
+        cut = data.rfind(b"\n") + 1 or len(data)
+        body = data[:cut]
+        try:
+            with urlopen(Request(url, data=body, method="POST",
+                                 headers={"Content-Type": "text/plain"}),
+                         timeout=10) as r:
+                if r.status >= 300:
+                    return False
+        except Exception:
+            return False
+        with _spool_lock:              # drop what was sent, keep anything newer
+            with open(HIST_SPOOL, "rb") as f:
+                rest = f.read()[len(body):]
+            with open(HIST_SPOOL, "wb") as f:
+                f.write(rest)
+
+
+def historian_pusher():
+    backoff = 5
+    while True:
+        _spool_ready.wait(timeout=backoff)
+        _spool_ready.clear()
+        ok = historian_flush()
+        backoff = 5 if ok else min(300, backoff * 2)
+
+
 def sampler():
     n = 0
     while True:
         try:
+            s = sample_once()
             with open(HIST_FILE, "a") as f:
-                f.write(json.dumps(sample_once(), separators=(",", ":")) + "\n")
+                f.write(json.dumps(s, separators=(",", ":")) + "\n")
+            historian_enqueue(s)
         except Exception:
             pass
         n += 1
@@ -2139,7 +2279,7 @@ def check():
 def main(argv=None):
     global CFG, NODES, PORT, SERVE_PORTS, ROUTER_PORT, FABRIC_PREFIX
     global DOCS_DIR, SAMPLE_EVERY, KEEP_DAYS, HIST_FILE, CONF_FILE
-    global CATALOG_FILE, DEFAULT_CONF
+    global CATALOG_FILE, DEFAULT_CONF, HIST_SPOOL
 
     ap = argparse.ArgumentParser(
         prog="spark-monitor",
@@ -2180,6 +2320,7 @@ def main(argv=None):
     HIST_FILE = os.path.join(CFG["data_dir"], "history.jsonl")
     CONF_FILE = os.path.join(CFG["data_dir"], "settings.json")
     CATALOG_FILE = os.path.join(CFG["data_dir"], "catalog.json")
+    HIST_SPOOL = os.path.join(CFG["data_dir"], "historian-spool.lp")
     DEFAULT_CONF = dict(CFG["power"])
 
     if a.check:
@@ -2206,6 +2347,9 @@ def main(argv=None):
               "tailnet — never port-forward it. See SECURITY.md.")
     _prune()
     threading.Thread(target=sampler, daemon=True).start()
+    if _historian():
+        print(f"  historian  {_historian()['url']}")
+        threading.Thread(target=historian_pusher, daemon=True).start()
     try:
         ThreadingHTTPServer((CFG["bind"], PORT), H).serve_forever()
     except KeyboardInterrupt:

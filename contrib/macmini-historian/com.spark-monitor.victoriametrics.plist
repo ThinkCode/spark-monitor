@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- VictoriaMetrics single-node for spark-monitor's historian.
+     launchd does not expand ~ : replace __HOME__ with your home directory
+     (the README's install step does it with sed).
+     Drop the -promscrape.config line if you don't want vLLM scraping. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.spark-monitor.victoriametrics</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HOME__/historian/bin/victoria-metrics-prod</string>
+    <string>-storageDataPath=__HOME__/historian/data</string>
+    <string>-retentionPeriod=1y</string>
+    <string>-httpListenAddr=:8428</string>
+    <string>-promscrape.config=__HOME__/historian/scrape.yml</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/historian/vm.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/historian/vm.log</string>
+</dict>
+</plist>

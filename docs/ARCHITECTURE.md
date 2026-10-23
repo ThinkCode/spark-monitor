@@ -140,6 +140,14 @@ exchange for query features this workload doesn't need. Aggregation over 45 days
 minute samples (~65 k rows) takes milliseconds, and `/api/history` is cached for 55
 seconds.
 
+### Optional historian
+
+With `historian` configured, each sample is also turned into Influx line protocol and
+appended to a spool file; a background thread pushes the spool and truncates it. The
+sampler never does network I/O for this, so an unreachable historian costs nothing but
+disk (capped). VictoriaMetrics runs on *another* machine — the "no time-series DB" rule
+below is about what runs on the Sparks, and the local JSONL path is unchanged.
+
 ## Security posture
 
 **No authentication, by design, for a LAN/tailnet tool.** Adding auth to a dashboard you

@@ -7,6 +7,12 @@ All notable changes to this project are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- Optional `historian` config block: each sample is also pushed as Influx line protocol
+  (stdlib `urllib` only) to a long-term store such as VictoriaMetrics, through a capped
+  on-disk retry spool that drains when the target is reachable again. Off by default;
+  `history.jsonl` is unchanged. Series and queries in `docs/API.md`.
+- `contrib/macmini-historian/`: VictoriaMetrics on a Mac mini under launchd, 1-year
+  retention, optional scrape of vLLM `/metrics`.
 - Screenshots in the README and guides, also served to the in-dashboard docs drawer
   at `/docs-images/<name>`. The markdown renderer now handles `![alt](src)`.
 - `contrib/keepalive.sh` for systems without systemd.

@@ -15,5 +15,8 @@
   "serve_ports": [8000, 8080, 8888],
 
   "_comment_power": "Starting values only; the UI's Settings form overrides them. Calibrate with a smart plug - see docs/METRICS.md.",
-  "power": { "price_kwh": 0.15, "currency": "$", "idle_w": 50, "load_w": 200 }
+  "power": { "price_kwh": 0.15, "currency": "$", "idle_w": 50, "load_w": 200 },
+
+  "_comment_historian": "Optional: also push samples to VictoriaMetrics for long-term history. Remove this key to keep it off. See contrib/macmini-historian.",
+  "historian": null
 }

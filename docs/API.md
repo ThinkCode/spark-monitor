@@ -182,6 +182,45 @@ whitelisted filenames resolve.
 
 ---
 
+## Long-term history (VictoriaMetrics)
+
+When the optional [`historian`](CONFIGURATION.md#historian) is set, every sample is also
+stored in VictoriaMetrics, typically for a year. Clients query it directly with the
+Prometheus HTTP API; Spark Monitor does not proxy it.
+
+| Series | Labels | Meaning |
+|---|---|---|
+| `spark_gpu_util` | `node`, `cluster` | GPU utilisation, % |
+| `spark_gpu_temp_c` | `node`, `cluster` | GPU temperature, °C |
+| `spark_soc_temp_c` | `node`, `cluster` | Hottest thermal zone, °C |
+| `spark_mem_pct` | `node`, `cluster` | Unified memory used, % |
+| `spark_watts_est` | `node`, `cluster` | Modelled wall draw from `power` settings, W |
+| `spark_kv_cache_pct` | `node="cluster"` | KV-cache usage averaged over engines, % |
+| `spark_requests_inflight` | `node="cluster"` | Running requests |
+| `spark_tokens_generated_per_min` | `node="cluster"` | Generated (decode) tokens per minute |
+| `spark_tokens_prompt_per_min` | `node="cluster"` | Prompt (prefill) tokens per minute — kept apart from generated, see [METRICS.md](METRICS.md) |
+
+Engine series are cluster-wide because the sampler aggregates engines; token rates skip
+the interval in which an engine restarted.
+
+```bash
+VM=http://mac-mini.local:8428
+# last 7 days of GPU util per node, hourly points
+curl -s "$VM/api/v1/query_range" \
+  --data-urlencode 'query=avg_over_time(spark_gpu_util[1h])' \
+  --data-urlencode "start=$(( $(date +%s) - 7*86400 ))" \
+  --data-urlencode "end=$(date +%s)" --data-urlencode step=1h
+# tokens generated in the last 30 days
+curl -s "$VM/api/v1/query" --data-urlencode \
+  'query=sum_over_time(spark_tokens_generated_per_min[30d])'
+```
+
+Responses are the standard Prometheus `{"status":"success","data":{"resultType":"matrix",
+"result":[{"metric":{...},"values":[[ts,"v"],...]}]}}`, so Grafana and any Prometheus
+client library work unchanged.
+
+---
+
 ## Building on it
 
 **A simple alarm poller:**

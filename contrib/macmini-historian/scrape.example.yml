@@ -1,0 +1,8 @@
+# Optional: VictoriaMetrics scrapes each engine's Prometheus endpoint directly,
+# keeping every vllm:* series (latency histograms, queue depth...) for a year.
+# Copy to ~/historian/scrape.yml and list your serving endpoints.
+scrape_configs:
+  - job_name: vllm
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["spark-1:8000", "spark-2:8000"]
