@@ -91,6 +91,16 @@ DEFAULTS = {
     # Optional single entry point in front of several engines (a proxy/router).
     # Asked first when listing models, because it knows the whole picture.
     "router_port": None,
+    # Optional path to a JSON file of versions collected by something else --
+    # a managed switch this host has no credentials for, or a tool installed
+    # on your laptop rather than the cluster. Read only; the dashboard never
+    # writes it. See docs/FIRMWARE.md.
+    "firmware_report": None,
+    # Topology switching. OFF unless you enable it AND set a token; see
+    # docs/TOPOLOGY.md for the risks and control.py for why it is a header
+    # token rather than a password field.
+    "control": {"enabled": False, "token": None, "networks": None},
+    "profiles_file": None,
     # Fabric rails (the high-speed node-to-node interconnect) are detected from
     # RoCE/InfiniBand sysfs, so a cabled cluster needs no configuration. Set
     # this to an IPv4 prefix like "10.10." to additionally treat plain
@@ -207,6 +217,20 @@ def write_starter_config(path):
 
 # Populated by main() (and by import, so the module stays usable in a REPL).
 CFG = load_config()
+# Optional sibling module; the dashboard still runs without it.
+try:
+    import firmware
+except Exception:            # pragma: no cover
+    firmware = None
+try:
+    import control
+except Exception:            # pragma: no cover
+    control = None
+try:
+    import topology
+except Exception:            # pragma: no cover
+    topology = None
+
 NODES = CFG["nodes"]
 PORT = CFG["port"]
 SERVE_PORTS = tuple(CFG["serve_ports"])
@@ -291,6 +315,151 @@ def _ssh_prefix(host):
 
 def _pfx(node):
     return _ssh_prefix(node.get("host"))
+
+
+def _fw_nodes():
+    """Nodes in the shape firmware.py wants, using this project's existing
+    ssh_user convention so there is nothing extra to configure."""
+    out = []
+    for n in NODES:
+        host = n.get("host")
+        target = None
+        if host:
+            target = ("%s@%s" % (CFG["ssh_user"], host)
+                      if CFG.get("ssh_user") else host)
+        out.append({"name": n.get("name") or n.get("id"),
+                    "host": host, "ssh": target})
+    return out
+
+
+def firmware_view(force=False):
+    if not firmware:
+        return {"error": "firmware.py not installed alongside spark-monitor.py",
+                "nodes": [], "updates": 0}
+    rp = CFG.get("firmware_report")
+    return firmware.get(_fw_nodes(),
+                        report_path=os.path.expanduser(rp) if rp else None,
+                        force=force)
+
+
+CTL = control.config(CFG) if control else {"enabled": False, "problems": [],
+                                            "networks": [], "network_names": [],
+                                            "token": ""}
+for _p in CTL.get("problems", []):
+    print("control: %s" % _p, file=sys.stderr)
+
+# One switch at a time, and its output, so the UI can stream it.
+_sw = {"running": False, "profile": None, "rc": None, "started": 0, "log": [],
+       "want_pause": None, "paused_ack": False, "agent_seen": 0}
+_sw_lock = threading.RLock()          # RLock: helpers below take it too
+
+
+def profiles_path():
+    return os.path.expanduser(CFG.get("profiles_file")
+                              or "~/.config/spark-monitor/profiles.json")
+
+
+def load_profiles():
+    with open(profiles_path()) as fh:
+        return json.load(fh)
+
+
+def topo_view():
+    if not topology:
+        return {"error": "topology.py not installed", "profiles": {}}
+    try:
+        cfg = load_profiles()
+    except Exception as e:
+        return {"error": "no profiles file (%s)" % e, "profiles": {}}
+    out = {}
+    for name, p in cfg.get("profiles", {}).items():
+        out[name] = {"label": p.get("label", name),
+                     "description": p.get("description", ""),
+                     "impact": p.get("impact", []),
+                     "models": p.get("models", [])}
+    with _sw_lock:
+        job = {k: v for k, v in _sw.items() if k != "log"}
+        job["log_lines"] = len(_sw["log"])
+    return {"profiles": out, "job": job,
+            "active": topology.active_profile(cfg),
+            "agent_ok": _agent_live()}
+
+
+def _agent_live(stale=45):
+    with _sw_lock:
+        seen = _sw["agent_seen"]
+    return bool(seen) and (time.time() - seen) < stale
+
+
+def _switch_thread(profile, skip_pause):
+    with _sw_lock:
+        _sw.update(running=True, profile=profile, rc=None, started=time.time(),
+                   log=["== switching to %s ==" % profile],
+                   want_pause=(None if skip_pause else profile),
+                   paused_ack=False)
+
+    def emit(line):
+        with _sw_lock:
+            _sw["log"].append(str(line)[:400])
+            del _sw["log"][:-500]
+
+    if not skip_pause and _agent_live():
+        emit("waiting for the pause agent to acknowledge ...")
+        t0 = time.time()
+        while time.time() - t0 < 90:
+            with _sw_lock:
+                if _sw["paused_ack"]:
+                    break
+            time.sleep(1)
+        with _sw_lock:
+            acked = _sw["paused_ack"]
+        if not acked:
+            emit("ABORTED: the pause agent did not acknowledge within 90s. "
+                 "Nothing was stopped. Start the agent, use the CLI, or "
+                 "re-run with 'switch anyway'.")
+            with _sw_lock:
+                _sw.update(running=False, rc=75, want_pause=None)
+            return
+        emit("pause acknowledged - proceeding")
+    elif not skip_pause:
+        emit("no pause agent connected; profile hooks (if any) still run")
+
+    rc = -1
+    try:
+        cfg = load_profiles()
+        # Run the switcher as a subprocess so its own line-buffered output is
+        # what the UI shows, rather than a second rendering of it here.
+        pr = subprocess.Popen(
+            [sys.executable, "-u", os.path.join(HERE, "topology.py"),
+             "--profiles", profiles_path(), profile, "--yes"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            bufsize=1)
+        for line in pr.stdout:
+            emit(line.rstrip())
+        pr.wait()
+        rc = pr.returncode
+    except Exception as e:
+        emit("EXCEPTION: %s" % e)
+    with _sw_lock:
+        _sw.update(running=False, rc=rc)
+        # Keep the pause in effect unless the switch was clean.
+        _sw["want_pause"] = None if rc == 0 else _sw["profile"]
+        _sw["log"].append("== finished, rc=%s ==" % rc)
+
+
+def topo_start(profile, skip_pause=False):
+    with _sw_lock:
+        if _sw["running"]:
+            return {"ok": False, "error": "a switch is already running"}
+    try:
+        cfg = load_profiles()
+    except Exception as e:
+        return {"ok": False, "error": "no profiles file (%s)" % e}
+    if profile not in cfg.get("profiles", {}):
+        return {"ok": False, "error": "unknown profile %r" % profile}
+    threading.Thread(target=_switch_thread, args=(profile, skip_pause),
+                     daemon=True).start()
+    return {"ok": True, "profile": profile}
 
 
 def _all_ports():
@@ -1455,7 +1624,7 @@ h1 .dot.up{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok)
 .kv{font-size:13px;color:var(--mut)}.kv b{color:var(--tx)}
 .pill{display:inline-block;background:var(--inset);border:0;border-radius:var(--r);padding:2px 10px;font-size:12px;margin:2px 3px 0 0}
 .foot{color:var(--mut);font-size:11px;margin-top:14px;text-align:center}
-.btn{background:var(--card);border:0;color:var(--tx);border-radius:var(--r);padding:6px 14px;font-size:14px;cursor:pointer}
+.btn{background:var(--card);border:0;color:var(--tx);border-radius:var(--r);padding:6px 14px;font-size:14px;cursor:pointer}@keyframes fwpulse{0%,100%{box-shadow:0 0 0 0 rgba(224,175,84,.5)}50%{box-shadow:0 0 12px 3px rgba(224,175,84,.5)}}#fwbtn.glow{animation:fwpulse 2s ease-in-out infinite;color:#e0af54}#fwbadge{margin-left:6px;font-size:11px;background:#e0af54;color:#11131a;border-radius:9px;padding:1px 7px;font-weight:700}#fwbadge:empty{display:none}.pf{display:flex;gap:8px;flex-wrap:wrap}.pf button{background:var(--inset);border:1px solid var(--soft);color:var(--tx);border-radius:var(--r);padding:6px 14px;font-size:14px;cursor:pointer}.pf button.on{border-color:#9ece6a;color:#9ece6a}.pf button:disabled{opacity:.4;cursor:not-allowed}.askbox{margin-top:10px;padding:12px;border-radius:var(--r);background:var(--inset);border:1px solid var(--soft)}.fwup{color:#e0af54}.fwok{color:var(--mut)}.fwnode{margin:8px 0;padding:8px 10px;border-radius:var(--r);background:var(--inset)}.fwsec{margin:14px 0 6px;font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mut)}.fwcmd{margin-top:8px;padding:8px 10px;border-radius:var(--r);background:var(--bg);border:1px dashed var(--soft)}.fwcmd pre{margin:0 0 8px;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5;overflow-x:auto}
 .alarmbtn{font-weight:700}
 .alarmbtn.warn{background:color-mix(in srgb,var(--am) 18%,transparent);color:var(--am)}
 .alarmbtn.crit{background:color-mix(in srgb,var(--rd) 20%,transparent);color:var(--rd);animation:flash 1s steps(1) infinite}
@@ -1488,7 +1657,7 @@ try{var _t=localStorage.getItem('sparkMonitorTheme');if(_t)document.documentElem
 </head><body>
 <h1><span class="dot" id="dot"></span><span id="clustername">Spark Monitor</span> <span style="font-weight:400;color:var(--mut);font-size:13px" id="model"></span>
 <button class="btn alarmbtn" id="alarmbtn" onclick="toggleAlarms()" style="margin-left:auto;display:none"></button>
-<button class="btn" id="catbtn" onclick="toggleCat()" style="margin-left:auto">&#128230; Model Catalog</button>
+<button class="btn" id="fwbtn" onclick="toggleFw()" style="margin-left:auto">&#129518; Firmware<span id="fwbadge"></span></button><button class="btn" id="catbtn" onclick="toggleCat()" style="margin-left:8px">&#128230; Model Catalog</button>
 <button class="btn" id="docsbtn" onclick="toggleDocs()" style="margin-left:8px">&#128218; Docs</button>
 <button class="btn btn-icon" id="themebtn" onclick="toggleTheme()" title="Toggle light / dark" style="margin-left:6px">&#9789;</button></h1>
 <div id="alarmpanel" style="display:none;position:absolute;top:56px;right:24px;z-index:9;background:var(--card);border:0;border-radius:12px;padding:10px 12px;max-width:460px;box-shadow:0 8px 30px rgba(0,0,0,.5)"></div>
@@ -1540,6 +1709,19 @@ try{var _t=localStorage.getItem('sparkMonitorTheme');if(_t)document.documentElem
     <button onclick="toggleDocs()" style="margin-left:auto;background:none;border:none;color:var(--mut);font-size:20px;cursor:pointer">&#10005;</button>
   </div>
   <div id="dbody" style="overflow-y:auto;padding:14px 18px;flex:1;font-size:14px;line-height:1.6"></div>
+</div>
+<div class="sechdr" id="topohdr" style="display:none"><h2>Topology</h2>
+  <span class="kv" id="topoactive"></span></div>
+<div class="card" id="topocard" style="display:none"></div>
+<div id="fwscrim" onclick="toggleFw()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:8"></div>
+<div id="fwdrawer" style="position:fixed;top:0;right:0;bottom:0;width:min(760px,95vw);background:var(--card);border-left:1px solid var(--soft);z-index:9;transform:translateX(105%);transition:transform .28s ease;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)">
+  <div style="display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--soft)">
+    <b style="font-size:15px">&#129518; Firmware &amp; versions</b>
+    <span class="kv" id="fwmeta" style="font-size:11px"></span>
+    <button onclick="loadFw(true)" id="fwref" style="margin-left:auto;background:var(--inset);border:0;color:var(--mut);border-radius:var(--r);padding:3px 10px;cursor:pointer">re-scan</button>
+    <button onclick="toggleFw()" style="background:none;border:none;color:var(--mut);font-size:20px;cursor:pointer">&#10005;</button>
+  </div>
+  <div id="fwbody" style="overflow-y:auto;padding:14px 18px;flex:1;font-size:14px;line-height:1.6"></div>
 </div>
 <div id="catscrim" onclick="toggleCat()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:8"></div>
 <div id="catdrawer" style="position:fixed;top:0;right:0;bottom:0;width:min(720px,94vw);background:var(--card);border-left:1px solid var(--soft);z-index:9;transform:translateX(105%);transition:transform .28s ease;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)">
@@ -1888,6 +2070,174 @@ async function saveCost(){
  catch(e){$('csaved').textContent='save failed'}}
 /* ---------- model catalog drawer ---------- */
 let catOpen=false,catLoaded=false;
+let TSW=null, TSWTIMER=null, TSWASK=null, TSWERR='';
+function topoRender(){
+ const hdr=$('topohdr'), c=$('topocard');
+ if(!TSW||TSW.error||!Object.keys(TSW.profiles||{}).length){
+   hdr.style.display='none'; c.style.display='none'; return; }
+ hdr.style.display=''; c.style.display='';
+ const j=TSW.job||{}, act=TSW.active;
+ $('topoactive').textContent = act ? ('active: '+act) : 'active: (no profile fully serving)';
+ let h='<div class="pf">';
+ for(const [name,p] of Object.entries(TSW.profiles)){
+   const cur=name===act, dis=j.running||cur;
+   h+=`<button class="${cur?'on':''}" ${dis?'disabled':''} onclick="topoAsk('${name}')">`
+     +`${esc(p.label||name)}${cur?' &middot; active':''}</button>`;
+ }
+ h+='</div>';
+ if(j.running) h+=`<div class="kv" style="margin-top:10px">switching to <b>${esc(j.profile||'')}</b>&hellip;</div>`;
+ else if(j.rc!==null&&j.rc!==undefined)
+   h+=`<div class="kv" style="margin-top:10px">last switch to <b>${esc(j.profile||'')}</b> `
+     +`finished rc=${j.rc}${j.rc===0?'':' &mdash; see the log'}</div>`;
+ h+='<div class="kv" style="margin-top:6px">pause agent: '
+   +(TSW.agent_ok?'<b style="color:#9ece6a">connected</b>'
+     :'<b style="color:#e0af54">not connected</b> &mdash; switches from here will ask first')
+   +'</div>';
+ h+=topoAskBlock();
+ if(TSWERR) h+=`<div class="kv" style="margin-top:8px;color:#f7768e">${esc(TSWERR)}</div>`;
+ h+='<pre class="swlog" id="swlog" style="display:none;max-height:320px;overflow:auto;'
+   +'white-space:pre-wrap;font-size:12px;line-height:1.5;margin-top:10px"></pre>';
+ c.innerHTML=h;
+ if(j.running||j.log_lines) topoLog();
+}
+function topoAsk(name){
+ /* In-page confirmation, not window.confirm(): a sandboxed WebView ignores
+    confirm() and returns false, which makes the button look dead. */
+ if(!(TSW.profiles||{})[name]) return; TSWASK=name; topoRender();
+}
+function topoCancel(){TSWASK=null;topoRender()}
+function topoAskBlock(){
+ const name=TSWASK; if(!name) return '';
+ const p=(TSW.profiles||{})[name]; if(!p) return '';
+ const agent=TSW.agent_ok;
+ let h='<div class="askbox"><div style="font-weight:600;margin-bottom:6px">'
+   +`Switch to ${esc(p.label||name)}?</div><div class="kv">${esc(p.description||'')}</div>`;
+ if((p.impact||[]).length)
+   h+='<ul style="margin:8px 0 0 16px;padding:0">'
+     +p.impact.map(x=>`<li class="kv">${esc(x)}</li>`).join('')+'</ul>';
+ h+= agent
+   ? '<div class="kv" style="margin-top:8px">Scheduled work will be paused and resumed automatically if the switch is clean.</div>'
+   : '<div class="kv" style="margin-top:8px;color:#e0af54">\u26a0 No pause agent is connected, so scheduled work CANNOT be paused. Anything on a timer will keep firing at a model that is going away.</div>';
+ h+='<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">'
+   +`<button class="btn" onclick="topoGo(false)">Switch</button>`
+   +(agent?'':'<button class="btn" onclick="topoGo(true)">Switch anyway, without pausing</button>')
+   +'<button class="btn" onclick="topoCancel()">Cancel</button></div></div>';
+ return h;
+}
+async function topoGo(skip){
+ const name=TSWASK; if(!name) return; TSWASK=null; TSWERR=''; topoRender();
+ try{
+   const r=await(await fetch('/api/topology/switch',{method:'POST',
+     headers:{'Content-Type':'application/json','X-Spark-Token':topoToken()},
+     body:JSON.stringify({profile:name,skip_pause:!!skip})})).json();
+   if(!r.ok){TSWERR=r.error||'could not start';}
+ }catch(e){TSWERR='request failed: '+e}
+ topoPoll(true);
+}
+function topoToken(){
+ /* Kept in this tab only. Never written to localStorage: a token that
+    outlives the tab is a token that leaks with the browser profile. */
+ if(!window._sparkToken) window._sparkToken = prompt('Control token (X-Spark-Token)')||'';
+ return window._sparkToken;
+}
+async function topoLog(){
+ try{const d=await(await fetch('/api/topology/log')).json();
+   const el=$('swlog'); if(!el||!d.log||!d.log.length) return;
+   el.style.display='block';
+   const stick=el.scrollTop+el.clientHeight>=el.scrollHeight-24;
+   el.textContent=d.log.join('\n'); if(stick) el.scrollTop=el.scrollHeight;
+ }catch(e){}
+}
+async function topoPoll(fast){
+ try{TSW=await(await fetch('/api/topology')).json();topoRender()}catch(e){}
+ clearTimeout(TSWTIMER);
+ const run=TSW&&TSW.job&&TSW.job.running;
+ TSWTIMER=setTimeout(topoPoll, run||fast?3000:30000);
+}
+topoPoll();
+
+let fwOpen=false, FW=null, FWTIMER=null;
+function toggleFw(){fwOpen=!fwOpen;
+ $('fwdrawer').style.transform=fwOpen?'translateX(0)':'translateX(105%)';
+ $('fwscrim').style.display=fwOpen?'block':'none';
+ if(fwOpen) loadFw(false);
+}
+function fwVer(cur,latest){return `<span class="fwup">${esc(cur)} &rarr; ${esc(latest)}</span>`}
+function fwRender(){
+ const b=$('fwbody'); if(!FW){b.innerHTML='<div class="kv">loading&hellip;</div>';return}
+ if(FW.error){b.innerHTML=`<div class="kv fwup">${esc(FW.error)}</div>`;return}
+ let h='';
+ const nodes=FW.nodes||[];
+ if(!nodes.length) h+='<div class="kv">scanning&hellip; firmware data appears once the first sweep finishes.</div>';
+ for(const n of nodes){
+   if(n.error){h+=`<div class="fwnode"><b>${esc(n.name)}</b> <span class="fwup">${esc(n.error)}</span></div>`;continue}
+   const ups=(n.fw_updates||[]).length+(n.pkg_updates||[]).length+(n.bios_drift?1:0);
+   h+=`<div class="fwnode"><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">`
+     +`<b>${esc(n.name)}</b><span class="kv">${esc(n.vendor)} ${esc(n.product)}</span>`
+     +(ups?`<span class="fwup" style="margin-left:auto">${ups} update${ups>1?'s':''}</span>`
+          :'<span class="fwok" style="margin-left:auto">up to date</span>')+'</div>'
+     +`<div class="kv">BIOS <span class="${n.bios_drift?'fwup':''}">${esc(n.bios||'?')}</span>`
+     +(n.bios_drift?` <span class="fwup">&larr; behind ${esc(n.bios_newest_seen)} on an identical node</span>`:'')
+     +`${n.bios_date?' ('+esc(n.bios_date)+')':''} &middot; driver ${esc(n.driver||'?')}`
+     +` &middot; kernel ${esc(n.kernel||'?')}</div>`;
+   for(const u of (n.fw_updates||[]))
+     h+=`<div class="kv">&bull; ${esc(u.name)}: ${fwVer(u.current,u.latest)}`
+       +(u.needs_reboot?' <span class="fwok">(reboot)</span>':'')+'</div>';
+   if((n.pkg_updates||[]).length){
+     h+='<div class="kv">&bull; packages: '
+       +n.pkg_updates.slice(0,6).map(x=>`${esc(x.pkg)} ${fwVer(x.current,x.latest)}`).join(', ')
+       +(n.pkg_updates.length>6?` &hellip; +${n.pkg_updates.length-6} more`:'')+'</div>';
+     if(n.apt_cache_age_h!=null)
+       h+=`<div class="kv" style="font-size:11px">apt index ${n.apt_cache_age_h}h old &mdash; refreshing it needs root</div>`;
+   }
+   if((n.commands||[]).length)
+     h+='<div class="fwcmd"><div class="kv" style="margin-bottom:4px">Run these yourself, as root'
+       +(n.needs_maintenance?' &mdash; <span class="fwup">stop anything running on this node first</span>'
+                            :' &mdash; <span class="fwok">packages only, no reboot</span>')
+       +`</div><pre>${esc(n.commands.join('\n'))}</pre>`
+       +`<button class="btn" onclick="fwCopy(${JSON.stringify(JSON.stringify(n.commands.join('\n')))})">copy</button></div>`;
+   h+='</div>';
+ }
+ const rep=FW.reported||{};
+ if((rep.items||[]).length){
+   h+='<div class="fwsec">Reported externally'
+     +(rep.stale?' <span class="fwup">(stale)</span>':'')+'</div>';
+   for(const it of rep.items){
+     h+=`<div class="fwnode"><div style="display:flex;gap:8px;flex-wrap:wrap">`
+       +`<b>${esc(it.name||'?')}</b><span class="kv">${esc(it.version||'')}</span>`
+       +(it.update?`<span class="fwup" style="margin-left:auto">${esc(it.latest||'update')} available</span>`
+                  :'<span class="fwok" style="margin-left:auto">up to date</span>')+'</div>'
+       +(it.note?`<div class="kv">${esc(it.note)}</div>`:'')
+       +((it.commands||[]).length?`<div class="fwcmd"><pre>${esc(it.commands.join('\n'))}</pre></div>`:'')
+       +'</div>';
+   }
+ }
+ b.innerHTML=h;
+ $('fwmeta').textContent = FW.loading ? 'scanning\u2026'
+   : (FW.age_s!=null ? 'scanned '+Math.round(FW.age_s/60)+' min ago' : '');
+ const r=$('fwref'); if(r) r.textContent = FW.loading?'scanning\u2026':'re-scan';
+}
+function fwBadge(){
+ const btn=$('fwbtn'), bad=$('fwbadge'); if(!btn||!bad) return;
+ /* Do not claim "up to date" during the first sweep: no nodes yet means
+    "not counted", not "nothing to do". */
+ const scanning = !FW || (FW.loading && !(FW.nodes||[]).length);
+ if(scanning){bad.textContent='';btn.classList.remove('glow');btn.title='checking\u2026';return}
+ const n=FW.updates||0;
+ bad.textContent=n?String(n):''; btn.classList.toggle('glow',n>0);
+ btn.title=n?(n+' update'+(n>1?'s':'')+' available'):'everything up to date';
+}
+function fwCopy(t){try{navigator.clipboard.writeText(JSON.parse(t))}catch(e){}}
+async function loadFw(force){
+ try{
+   FW=await(await fetch('/api/firmware'+(force?'?refresh=1':''))).json();
+   fwBadge(); if(fwOpen) fwRender();
+   if(FW.loading){clearTimeout(FWTIMER);FWTIMER=setTimeout(()=>loadFw(false),5000)}
+ }catch(e){ if(fwOpen) $('fwbody').innerHTML='<div class="kv">firmware data unavailable</div>' }
+}
+loadFw(false);
+setInterval(()=>loadFw(false), 900000);
+
 function toggleCat(){catOpen=!catOpen;
  $('catdrawer').style.transform=catOpen?'translateX(0)':'translateX(105%)';
  $('catscrim').style.display=catOpen?'block':'none';
@@ -2173,6 +2523,29 @@ class H(BaseHTTPRequestHandler):
         # /api/settings is the only write endpoint in the whole server. It takes
         # exactly four numeric/string power-cost fields, all clamped in
         # save_conf(), and writes only its own settings file.
+        if self.path in ("/api/topology/switch", "/api/estop/ack"):
+            allowed, code, why = control.check(
+                CTL, self.client_address[0], self.headers.get(control.HEADER))
+            if not allowed:
+                self._json({"ok": False, "error": why}, code)
+                return
+            try:
+                n = min(4096, int(self.headers.get("Content-Length", 0)))
+                body = json.loads(self.rfile.read(n) or "{}")
+                if not isinstance(body, dict):
+                    raise ValueError
+            except (ValueError, OSError):
+                self._json({"ok": False, "error": "bad request"}, 400)
+                return
+            if self.path == "/api/estop/ack":
+                with _sw_lock:
+                    _sw["agent_seen"] = time.time()
+                    _sw["paused_ack"] = bool(body.get("paused"))
+                self._json({"ok": True})
+            else:
+                self._json(topo_start(str(body.get("profile") or ""),
+                                      bool(body.get("skip_pause"))))
+            return
         if self.path != "/api/settings":
             self.send_error(404)
             return
@@ -2196,6 +2569,27 @@ class H(BaseHTTPRequestHandler):
             self._json(history(h))
         elif path == "/api/settings":
             self._json(conf())
+        elif path == "/api/topology":
+            self._json(topo_view())
+        elif path == "/api/topology/log":
+            with _sw_lock:
+                self._json({"running": _sw["running"], "profile": _sw["profile"],
+                            "rc": _sw["rc"], "log": _sw["log"][-300:]})
+        elif path == "/api/estop":
+            # Read-only, but only for an authorised client: it tells a caller
+            # when a switch is about to happen, and the ack that follows can
+            # hold one up.
+            allowed, code, why = control.check(
+                CTL, self.client_address[0], self.headers.get(control.HEADER))
+            if not allowed:
+                self._json({"error": why}, code)
+                return
+            with _sw_lock:
+                _sw["agent_seen"] = time.time()
+                self._json({"want": _sw["want_pause"], "running": _sw["running"],
+                            "profile": _sw["profile"], "rc": _sw["rc"]})
+        elif path == "/api/firmware":
+            self._json(firmware_view("refresh=1" in self.path))
         elif path == "/api/catalog":
             self._json(catalog())
         elif path == "/api/docs":
@@ -2279,7 +2673,7 @@ def check():
 def main(argv=None):
     global CFG, NODES, PORT, SERVE_PORTS, ROUTER_PORT, FABRIC_PREFIX
     global DOCS_DIR, SAMPLE_EVERY, KEEP_DAYS, HIST_FILE, CONF_FILE
-    global CATALOG_FILE, DEFAULT_CONF, HIST_SPOOL
+    global CATALOG_FILE, DEFAULT_CONF, CTL, HIST_SPOOL
 
     ap = argparse.ArgumentParser(
         prog="spark-monitor",
@@ -2319,6 +2713,16 @@ def main(argv=None):
     KEEP_DAYS = max(1, int(CFG["history_days"]))
     HIST_FILE = os.path.join(CFG["data_dir"], "history.jsonl")
     CONF_FILE = os.path.join(CFG["data_dir"], "settings.json")
+    # Recompute the control gate from the config we actually loaded. It is
+    # first evaluated at import time against the default path, so without this
+    # a --config that enables control would be silently ignored -- which is a
+    # safe direction to fail, but confusing.
+    CTL = control.config(CFG) if control else CTL
+    for _p in CTL.get("problems", []):
+        print("control: %s" % _p, file=sys.stderr)
+    if CTL.get("enabled"):
+        print("control: ENABLED for %s (token required in %s header)"
+              % (", ".join(CTL["network_names"]), control.HEADER))
     CATALOG_FILE = os.path.join(CFG["data_dir"], "catalog.json")
     HIST_SPOOL = os.path.join(CFG["data_dir"], "historian-spool.lp")
     DEFAULT_CONF = dict(CFG["power"])

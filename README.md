@@ -110,7 +110,12 @@ metrics will be picked up.
 | [Multiple nodes](docs/MULTI-NODE.md) | You have more than one Spark |
 | [Remote access](docs/TAILSCALE.md) | You want it on your phone, from anywhere |
 | [Understanding the metrics](docs/METRICS.md) | A number looks alarming and you want to know if it is |
+| [Firmware and versions](docs/FIRMWARE.md) | You want to know what your nodes are running, and what is behind |
+| [Topology switching](docs/TOPOLOGY.md) | You want to run different models at different times, and switch between them |
+| [Pausing scheduled work](docs/ESTOP.md) | Something dispatches work on a schedule and must not fire mid-switch |
+| [Field notes](docs/FIELD-NOTES.md) | You want the failures we already paid for |
 | [JSON API](docs/API.md) | You want to build something on top of it |
+| [Agent setup](AGENTS.md) | You want a coding agent to install and configure it for you |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Something is blank, unreachable or wrong |
 | [Architecture](docs/ARCHITECTURE.md) | You want to change the code |
 

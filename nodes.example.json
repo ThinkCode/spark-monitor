@@ -14,6 +14,9 @@
   "_comment_ports": "Ports where an inference engine might be listening. vLLM defaults to 8000, llama.cpp to 8080. List only what you use.",
   "serve_ports": [8000, 8080, 8888],
 
+  "_comment_firmware": "Optional. Path to a JSON file of versions collected by something else (a managed switch, a UPS). Read only - the dashboard never writes it. See docs/FIRMWARE.md.",
+  "firmware_report": null,
+
   "_comment_power": "Starting values only; the UI's Settings form overrides them. Calibrate with a smart plug - see docs/METRICS.md.",
   "power": { "price_kwh": 0.15, "currency": "$", "idle_w": 50, "load_w": 200 },
 

@@ -13,6 +13,43 @@ All notable changes to this project are documented here. Format follows
   `history.jsonl` is unchanged. Series and queries in `docs/API.md`.
 - `contrib/macmini-historian/`: VictoriaMetrics on a Mac mini under launchd, 1-year
   retention, optional scrape of vLLM `/metrics`.
+- **Firmware and versions drawer.** Reports BIOS/UEFI, embedded controller, NIC and
+  NVMe firmware, the NVIDIA driver, the kernel, and pending driver/kernel packages for
+  every node. The button glows with a count when something is behind. Read-only: it
+  generates the root commands to apply an update and stops there, because a failed UEFI
+  or embedded-controller capsule can leave a machine that will not boot and no remote
+  orchestration recovers that. See `docs/FIRMWARE.md`, which includes measured capsule
+  reboot times (12 minutes per node, not the 1-2 a kernel reboot takes).
+- **BIOS drift detection.** No vendor publishes a machine-readable "latest BIOS" feed,
+  so the cluster is its own reference: among nodes reporting the same product, one
+  behind the newest BIOS observed is flagged. Reported as *drift*, not as an available
+  update — "one node is behind another" is all this can honestly know.
+- `firmware_report` config key: an optional JSON file of versions gathered by something
+  the dashboard cannot reach itself, rendered with its own staleness marker. Read only.
+- `AGENTS.md`: setup instructions written for a coding agent, including the constraints
+  it must not break (standard library only, one write endpoint, no real addresses).
+- **Topology switching** (`topology.py`, off by default). Declare profiles of what each
+  node should run; the switcher diffs current against target and moves the minimum.
+  Works as a CLI on its own, or from the dashboard when you enable control. Includes
+  maintenance mode, which frees named nodes for firmware work and stops there.
+- **Gated control endpoints.** Off unless you set `control.enabled` and a token of at
+  least 16 characters, and refuse to enable otherwise. The token goes in an
+  `X-Spark-Token` header, never a form field or query parameter: this dashboard has no
+  login, so a cross-origin form POST from any page you visit would otherwise be able to
+  switch your cluster. A custom header cannot be set cross-origin, so it is both the
+  authentication and the CSRF defence. Plus a network allowlist defaulting to loopback
+  and the Tailscale range, and constant-time token comparison.
+- **`estop-agent.py`**, for pausing scheduled work during a switch when the scheduler
+  runs somewhere the dashboard cannot reach. It acknowledges, and the dashboard waits
+  for that before stopping anything — without the handshake a 5 s poll is a 5 s window
+  where a cron job fires at a model that is going away. If the agent is absent, a switch
+  from the UI aborts rather than proceeding silently unpaused; the CLI is unaffected and
+  the UI offers an explicit override.
+- **`docs/FIELD-NOTES.md`**: the failures already paid for on a live cluster — how to
+  tell a hung distributed start from a slow one, why a capsule reboot is 12 minutes when
+  uptime claims 5, `RemainAfterExit` making `systemctl start` a no-op, a hardened
+  systemd unit stripping `ping`, block-buffered output making long jobs look hung, and
+  others.
 - Screenshots in the README and guides, also served to the in-dashboard docs drawer
   at `/docs-images/<name>`. The markdown renderer now handles `![alt](src)`.
 - `contrib/keepalive.sh` for systems without systemd.

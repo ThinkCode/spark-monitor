@@ -22,7 +22,7 @@ done
 fail() { echo "FAILED: $*" >&2; exit 1; }
 
 echo "== endpoints return 200 =="
-for p in /healthz /api/stats /api/settings /api/catalog /api/docs \
+for p in /healthz /api/stats /api/settings /api/catalog /api/docs /api/firmware /api/topology \
          /manifest.json /icon.png / "/api/history?h=24"; do
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$BASE$p")
   printf '  %-24s %s\n' "$p" "$code"
@@ -43,6 +43,27 @@ d = json.load(sys.stdin)
 for k in ("ts", "cluster_name", "nodes", "groups", "extras", "registry", "topology"):
     assert k in d, f"missing key: {k}"
 print("  ok:", ", ".join(sorted(d)))'
+
+echo "== firmware endpoint degrades gracefully with no fwupd/GPU =="
+fw=$(curl -fsS --max-time 30 "$BASE/api/firmware")
+python3 - "$fw" <<'EOF' || fail "firmware payload malformed"
+import json, sys
+d = json.loads(sys.argv[1])
+assert isinstance(d.get("nodes"), list), "nodes must be a list"
+assert isinstance(d.get("updates"), int), "updates must be an int"
+print("  ok: nodes=%d updates=%d loading=%s"
+      % (len(d["nodes"]), d["updates"], d.get("loading")))
+EOF
+
+echo "== control endpoints are OFF unless configured =="
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE/api/estop")
+printf '  GET  %-22s %s\n' "/api/estop" "$code"
+[ "$code" = "404" ] || fail "/api/estop should be 404 when control is disabled, got $code"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST \
+       -H 'Content-Type: application/json' -d '{"profile":"x"}' \
+       "$BASE/api/topology/switch")
+printf '  POST %-22s %s\n' "/api/topology/switch" "$code"
+[ "$code" = "404" ] || fail "switch must be refused when control is disabled, got $code"
 
 echo "== the one write endpoint clamps hostile input =="
 out=$(curl -fsS -X POST "$BASE/api/settings" \

@@ -11,10 +11,14 @@ import sys
 
 # Modules this project may import. Everything here ships with CPython.
 ALLOWED = {
-    "argparse", "ast", "concurrent", "http", "importlib", "json", "os",
-    "pathlib", "re", "shutil", "struct", "subprocess", "sys", "tempfile",
+    "argparse", "ast", "concurrent", "hmac", "http", "importlib",
+    "ipaddress", "json", "os",
+    "pathlib", "re", "shlex", "shutil", "struct", "subprocess", "sys", "tempfile",
     "threading", "time", "urllib", "zlib",
 }
+
+# Modules that live in this repository. Importing one is not a dependency.
+LOCAL_MODULES = {p.stem for p in pathlib.Path(".").glob("*.py")}
 
 failed = False
 for path in sorted(pathlib.Path(".").glob("*.py")) + \
@@ -29,6 +33,10 @@ for path in sorted(pathlib.Path(".").glob("*.py")) + \
             continue
         for name in names:
             root = name.split(".")[0]
+            # A sibling module shipped in this repo is not a dependency: it is
+            # this project. Only imports that would need installing count.
+            if root and root in LOCAL_MODULES:
+                continue
             if root and root not in ALLOWED:
                 print(f"{path}:{node.lineno}: non-stdlib import {name!r}")
                 failed = True

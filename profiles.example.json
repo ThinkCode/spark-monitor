@@ -1,0 +1,89 @@
+{
+  "_comment": "Copy to ~/.config/spark-monitor/profiles.json and edit. JSON has no comments, so delete the _comment keys. Full guide: docs/TOPOLOGY.md. Nothing here is required unless you want topology switching.",
+
+  "_comment_nodes": "Every node the switcher may touch. host null means the machine running it. ssh_user is optional per node and falls back to the top-level one.",
+  "ssh_user": null,
+  "nodes": {
+    "node-1": { "host": null },
+    "node-2": { "host": "10.0.0.12" },
+    "node-3": { "host": "10.0.0.13" }
+  },
+
+  "_comment_router": "Optional. A proxy in front of your engines. Used to tell when a model is really SERVING rather than merely started, and to work out which profile is active. Without it, switching still works but cannot wait for readiness.",
+  "router_url": "http://127.0.0.1:8600/v1/models",
+
+  "_comment_health": "Optional. Run after a switch. A non-zero exit marks the switch unclean and leaves the pre_switch hook in effect.",
+  "health_command": null,
+
+  "_comment_hooks": "Optional. pre_switch runs before anything is stopped, post_switch only after a clean switch. Use them to pause and resume whatever dispatches work at your models, so scheduled jobs do not fire at a model that is going away. {profile} is substituted. See docs/ESTOP.md.",
+  "hooks": {
+    "pre_switch": null,
+    "post_switch": null
+  },
+
+  "_comment_services": "One entry per thing that can run. kind is systemd-user, systemd, docker, or command. host is which node drives it - NOT necessarily where it runs: a tensor-parallel model spans several nodes but is usually launched from one. nodes lists every node it occupies, which is how maintenance mode knows what to stop. model is the id it registers with your router. watchdog is an optional timer stopped BEFORE the unit so it cannot restart it mid-switch.",
+  "services": {
+    "big-model": {
+      "nodes": ["node-1", "node-2", "node-3"],
+      "model": "my-big-model",
+      "ready_seconds": 900,
+      "control": {
+        "kind": "systemd-user",
+        "host": "node-1",
+        "unit": "big-model.service",
+        "watchdog": "big-model-watch.timer"
+      }
+    },
+    "small-model": {
+      "nodes": ["node-3"],
+      "model": "my-small-model",
+      "ready_seconds": 240,
+      "control": {
+        "kind": "docker",
+        "host": "node-3",
+        "container": "small-model"
+      }
+    },
+    "vision": {
+      "nodes": ["node-2"],
+      "model": "my-vision-model",
+      "ready_seconds": 300,
+      "control": {
+        "kind": "command",
+        "host": "node-2",
+        "status": "systemctl --user is-active vision.service",
+        "stop": "systemctl --user stop vision.service",
+        "start": "systemctl --user start vision.service"
+      }
+    }
+  },
+
+  "_comment_profiles": "state maps every node to the service it should run, or idle. The switcher diffs what is running against this. impact lines are shown before anything is stopped - write down what a person loses. models lists what should be serving when the profile is live, used to detect the active profile.",
+  "profiles": {
+    "everyday": {
+      "label": "small + vision",
+      "description": "Two smaller models. Leaves headroom.",
+      "state": {
+        "node-1": "idle",
+        "node-2": "vision",
+        "node-3": "small-model"
+      },
+      "models": ["my-small-model", "my-vision-model"]
+    },
+    "big": {
+      "label": "one big model",
+      "description": "One large model across three nodes.",
+      "state": {
+        "node-1": "big-model",
+        "node-2": "big-model",
+        "node-3": "big-model"
+      },
+      "models": ["my-big-model"],
+      "impact": [
+        "STOPS my-small-model and my-vision-model",
+        "~15 min before it answers",
+        "nothing else fits on these nodes while it runs"
+      ]
+    }
+  }
+}

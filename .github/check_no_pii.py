@@ -19,10 +19,17 @@ ALLOWED_LITERALS = {
     "10.0.0.12", "10.0.0.13", "10.10.7.0", "10.10.7.1", "10.10.7.2",
     "10.10.8.1", "192.168.1.0", "192.168.1.42", "192.168.1.24",
     "100.101.102.103", "100.64.1.9",
+    # Network identifiers, not host addresses. These name RFC-defined ranges
+    # (loopback, and the CGNAT block Tailscale uses) and appear in the default
+    # control allowlist and its documentation. A network base address cannot
+    # identify anyone's machine.
+    "127.0.0.0", "100.64.0.0", "192.168.0.0", "10.0.0.0",
 }
 # Patterns that should never appear at all.
 FORBIDDEN = [
-    (re.compile(r"\b100\.(?!101\.102\.103|64\.1\.9)\d{1,3}\.\d{1,3}\.\d{1,3}\b"),
+    # 100.64.0.0 is the base of the CGNAT range itself, not a device on it.
+    (re.compile(r"\b100\.(?!101\.102\.103|64\.1\.9|64\.0\.0)"
+                r"\d{1,3}\.\d{1,3}\.\d{1,3}\b"),
      "looks like a real Tailscale address"),
     (re.compile(r"\btail[0-9a-f]{6,}\.ts\.net\b"), "real tailnet name"),
     # TLD must not be numeric, or every "user@<ip-address>" SSH example trips it.
